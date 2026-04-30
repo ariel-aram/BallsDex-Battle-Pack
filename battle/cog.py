@@ -52,6 +52,9 @@ class GuildBattle:
     battle: BattleInstance = field(default_factory=BattleInstance)
     author_ready: bool = False
     opponent_ready: bool = False
+    author_confirmed: bool = False
+    opponent_confirmed: bool = False
+    announce_mention: str = ""
     battle_message: discord.Message | None = None
     current_view: discord.ui.LayoutView | None = None
     amount_required: int = 3
@@ -257,9 +260,12 @@ def _make_terminal_view(
     container: discord.ui.Container,
     *,
     ready_buttons: bool = False,
+    mention_text: str = "",
 ) -> discord.ui.LayoutView:
     """Creates a non-interactive LayoutView for terminal battle states."""
     view = discord.ui.LayoutView(timeout=None)
+    if mention_text:
+        view.add_item(discord.ui.TextDisplay(mention_text))
     view.add_item(container)
     view.add_item(_disabled_ready_row() if ready_buttons else _disabled_setup_row())
     return view
@@ -303,11 +309,9 @@ class BattleSetupContainer(discord.ui.Container):
         )
 
     def to_components(self) -> list[dict[str, Any]]:
-        # Render text content before the action row
-        rows = [i for i in self._children if isinstance(i, discord.ui.ActionRow)]
-        non_rows = [
-            i for i in self._children if not isinstance(i, discord.ui.ActionRow)
-        ]
+        # Render text content before the interactive action row
+        rows = [i for i in self._children if i is self._row]
+        non_rows = [i for i in self._children if i is not self._row]
         return [i.to_component_dict() for i in non_rows + rows]
 
     @_row.button(style=discord.ButtonStyle.primary, emoji="🔒", label="Lock proposal")
@@ -344,14 +348,16 @@ class BattleSetupContainer(discord.ui.Container):
                 )
                 return
 
-            new_view = BothLockedView(gb)
+            new_view = BothLockedView(
+                gb,
+                mention_text=f"{gb.author.mention} vs {gb.opponent.mention}",
+            )
             gb.current_view = new_view
 
             await interaction.response.defer()
             if interaction.message is None:
                 return
             await interaction.message.edit(
-                content=f"{gb.author.mention} vs {gb.opponent.mention}",
                 view=new_view,
                 attachments=[],
             )
@@ -360,7 +366,7 @@ class BattleSetupContainer(discord.ui.Container):
                 "Done! Waiting for the other player to press 'Ready'.", ephemeral=True
             )
             if gb.battle_message:
-                new_view = BattleSetupView(gb)
+                new_view = BattleSetupView(gb, announce_mention=gb.announce_mention)
                 gb.current_view = new_view
                 await gb.battle_message.edit(view=new_view)
 
@@ -375,7 +381,7 @@ class BattleSetupContainer(discord.ui.Container):
         user_balls.clear()
 
         if gb.battle_message:
-            new_view = BattleSetupView(gb)
+            new_view = BattleSetupView(gb, announce_mention=gb.announce_mention)
             gb.current_view = new_view
             await gb.battle_message.edit(view=new_view)
 
@@ -393,7 +399,7 @@ class BattleSetupContainer(discord.ui.Container):
         )
 
         if gb.battle_message:
-            await gb.battle_message.edit(content="", view=terminal_view)
+            await gb.battle_message.edit(view=terminal_view)
 
         try:
             await interaction.response.send_message(
@@ -413,21 +419,26 @@ class BothLockedContainer(discord.ui.Container):
 
     def __init__(self, gb: GuildBattle) -> None:
         self._gb = gb
+        author_prefix = "✅ " if gb.author_confirmed else "🔒 "
+        opponent_prefix = "✅ " if gb.opponent_confirmed else "🔒 "
+        if gb.author_confirmed and gb.opponent_confirmed:
+            status = "Both players confirmed! Starting battle..."
+        elif gb.author_confirmed or gb.opponent_confirmed:
+            status = "Waiting for the other player to confirm..."
+        else:
+            status = "Both users have locked their propositions! Now confirm to begin the battle."
         super().__init__(
             discord.ui.TextDisplay(
                 f"## {settings.plural_collectible_name.title()} Battle Plan"
             ),
+            discord.ui.TextDisplay(status),
+            discord.ui.Separator(),
             discord.ui.TextDisplay(
-                "Both users have locked their propositions! "
-                "Now confirm to begin the battle."
+                f"**{author_prefix}{gb.author.name}**\n{gen_deck(gb.battle.p1_balls)}"
             ),
             discord.ui.Separator(),
             discord.ui.TextDisplay(
-                f"**🔒 {gb.author.name}**\n{gen_deck(gb.battle.p1_balls)}"
-            ),
-            discord.ui.Separator(),
-            discord.ui.TextDisplay(
-                f"**🔒 {gb.opponent.name}**\n{gen_deck(gb.battle.p2_balls)}"
+                f"**{opponent_prefix}{gb.opponent.name}**\n{gen_deck(gb.battle.p2_balls)}"
             ),
             discord.ui.Separator(),
             discord.ui.TextDisplay("-# This message is updated every 15 seconds."),
@@ -435,10 +446,9 @@ class BothLockedContainer(discord.ui.Container):
         )
 
     def to_components(self) -> list[dict[str, Any]]:
-        rows = [i for i in self._children if isinstance(i, discord.ui.ActionRow)]
-        non_rows = [
-            i for i in self._children if not isinstance(i, discord.ui.ActionRow)
-        ]
+        # Render text content before the interactive action row
+        rows = [i for i in self._children if i is self._row]
+        non_rows = [i for i in self._children if i is not self._row]
         return [i.to_component_dict() for i in non_rows + rows]
 
     @_row.button(style=discord.ButtonStyle.success, emoji="✔️")
@@ -446,6 +456,20 @@ class BothLockedContainer(discord.ui.Container):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
         gb = self._gb
+
+        if interaction.user == gb.author:
+            gb.author_confirmed = True
+        elif interaction.user == gb.opponent:
+            gb.opponent_confirmed = True
+
+        if not (gb.author_confirmed and gb.opponent_confirmed):
+            new_view = BothLockedView(gb)
+            gb.current_view = new_view
+            await interaction.response.defer()
+            if gb.battle_message:
+                await gb.battle_message.edit(view=new_view)
+            return
+
         battle_log = "\n".join(gen_battle(gb.battle))
 
         concluded_view = _make_terminal_view(
@@ -465,6 +489,7 @@ class BothLockedContainer(discord.ui.Container):
                 accent_colour=discord.Colour.green(),
             ),
             ready_buttons=True,
+            mention_text=f"{gb.author.mention} vs {gb.opponent.mention}",
         )
 
         logs_view = discord.ui.LayoutView(timeout=None)
@@ -500,7 +525,6 @@ class BothLockedContainer(discord.ui.Container):
         if interaction.message is None:
             return
         await interaction.message.edit(
-            content=f"{gb.author.mention} vs {gb.opponent.mention}",
             view=concluded_view,
             attachments=[],
         )
@@ -508,8 +532,8 @@ class BothLockedContainer(discord.ui.Container):
         channel = interaction.channel
         if not isinstance(channel, discord.abc.Messageable):
             return
+        await channel.send(view=logs_view)
         await channel.send(
-            view=logs_view,
             file=discord.File(
                 io.BytesIO(battle_log.encode()), filename="battle-log.txt"
             ),
@@ -528,7 +552,7 @@ class BothLockedContainer(discord.ui.Container):
         )
 
         if gb.battle_message:
-            await gb.battle_message.edit(content="", view=terminal_view)
+            await gb.battle_message.edit(view=terminal_view)
 
         try:
             await interaction.response.send_message(
@@ -563,9 +587,11 @@ class BattleSetupView(discord.ui.LayoutView):
 class BothLockedView(discord.ui.LayoutView):
     """Both-locked state view."""
 
-    def __init__(self, gb: GuildBattle) -> None:
+    def __init__(self, gb: GuildBattle, *, mention_text: str = "") -> None:
         super().__init__(timeout=None)
         self._gb = gb
+        if mention_text:
+            self.add_item(discord.ui.TextDisplay(mention_text))
         self.add_item(BothLockedContainer(gb))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -680,18 +706,18 @@ class Battle(commands.GroupCog):
             allow_duplicates=duplicates,
             allow_buffs=buffs,
         )
+        gb.announce_mention = (
+            f"Hey, {user.mention}, {interaction.user.name} "
+            f"is proposing a battle with you!"
+        )
         battles.append(gb)
 
-        view = BattleSetupView(
-            gb,
-            announce_mention=(
-                f"Hey, {user.mention}, {interaction.user.name} "
-                f"is proposing a battle with you!"
-            ),
-        )
+        view = BattleSetupView(gb, announce_mention=gb.announce_mention)
         gb.current_view = view
 
-        await interaction.response.send_message("battle started!", ephemeral=True)
+        await interaction.response.send_message(
+            "The battle has started!", ephemeral=True
+        )
 
         channel = interaction.channel
         if not isinstance(channel, discord.abc.Messageable):
@@ -713,7 +739,7 @@ class Battle(commands.GroupCog):
                     and gb.battle_message
                     and isinstance(gb.current_view, BattleSetupView)
                 ):
-                    new_view = BattleSetupView(gb)
+                    new_view = BattleSetupView(gb, announce_mention=gb.announce_mention)
                     gb.current_view = new_view
                     await gb.battle_message.edit(view=new_view)
             except (discord.NotFound, discord.Forbidden):
@@ -801,7 +827,7 @@ class Battle(commands.GroupCog):
             yield False
 
         if gb.battle_message and isinstance(gb.current_view, BattleSetupView):
-            new_view = BattleSetupView(gb)
+            new_view = BattleSetupView(gb, announce_mention=gb.announce_mention)
             gb.current_view = new_view
             await gb.battle_message.edit(view=new_view)
 
@@ -878,7 +904,7 @@ class Battle(commands.GroupCog):
             yield False
 
         if gb.battle_message and isinstance(gb.current_view, BattleSetupView):
-            new_view = BattleSetupView(gb)
+            new_view = BattleSetupView(gb, announce_mention=gb.announce_mention)
             gb.current_view = new_view
             await gb.battle_message.edit(view=new_view)
 
