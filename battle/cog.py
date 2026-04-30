@@ -835,9 +835,9 @@ class Battle(commands.GroupCog):
                         yield True  # Duplicate found
                         continue
                 
-                # Apply buffs if enabled and ball is shiny
-                health = countryball.health
-                attack = countryball.attack
+                # Apply stat caps before buffs
+                health = min(countryball.health, 5000)
+                attack = min(countryball.attack, 5000)
                 
                 if guild_battle.allow_buffs and hasattr(countryball, 'special') and countryball.special and "✨" in str(countryball.special):
                     health += 2000
@@ -875,9 +875,9 @@ class Battle(commands.GroupCog):
                         yield True  # Duplicate found
                         continue
                 
-                # Apply buffs if enabled and ball is shiny
-                health = countryball.health
-                attack = countryball.attack
+                # Apply stat caps before buffs
+                health = min(countryball.health, 5000)
+                attack = min(countryball.attack, 5000)
                 
                 if guild_battle.allow_buffs and hasattr(countryball, 'special') and countryball.special and "✨" in str(countryball.special):
                     health += 2000
@@ -955,11 +955,18 @@ class Battle(commands.GroupCog):
                     ball_name = ball_instance.ball.country
                     emoji_id = ball_instance.ball.emoji_id
                 
+                health = min(countryball.health, 5000)
+                attack = min(countryball.attack, 5000)
+                
+                if guild_battle.allow_buffs and hasattr(countryball, 'special') and countryball.special and "✨" in str(countryball.special):
+                    health += 2000
+                    attack += 2000
+
                 ball = BattleBall(
                     ball_name,
                     interaction.user.name,
-                    countryball.health,
-                    countryball.attack,
+                    health,
+                    attack,
                     countryball.health_bonus,
                     countryball.attack_bonus,
                     self.bot.get_emoji(emoji_id),
@@ -981,11 +988,18 @@ class Battle(commands.GroupCog):
                     ball_name = ball_instance.ball.country
                     emoji_id = ball_instance.ball.emoji_id
                 
+                health = min(countryball.health, 5000)
+                attack = min(countryball.attack, 5000)
+                
+                if guild_battle.allow_buffs and hasattr(countryball, 'special') and countryball.special and "✨" in str(countryball.special):
+                    health += 2000
+                    attack += 2000
+
                 ball = BattleBall(
                     ball_name,
                     interaction.user.name,
-                    countryball.health,
-                    countryball.attack,
+                    health,
+                    attack,
                     countryball.health_bonus,
                     countryball.attack_bonus,
                     self.bot.get_emoji(emoji_id),
@@ -1027,13 +1041,7 @@ class Battle(commands.GroupCog):
             The countryball you want to add to your proposal
         """
         countryball = await BallInstance.objects.prefetch_related("ball", "special").aget(id=countryball.id)
-        
-        if not countryball.ball.enabled:
-            await interaction.response.send_message(
-                "You cannot use disabled countryballs in battles!", ephemeral=True
-            )
-            return
-        
+
         async for dupe in self.add_balls(interaction, [countryball]):
             if dupe:
                 await interaction.response.send_message(
@@ -1062,13 +1070,7 @@ class Battle(commands.GroupCog):
             The countryball you want to remove from your proposal
         """
         countryball = await BallInstance.objects.prefetch_related("ball", "special").aget(id=countryball.id)
-        
-        if not countryball.ball.enabled:
-            await interaction.response.send_message(
-                "You cannot use disabled countryballs in battles!", ephemeral=True
-            )
-            return
-        
+
         async for not_in_battle in self.remove_balls(interaction, [countryball]):
             if not_in_battle:
                 await interaction.response.send_message(
