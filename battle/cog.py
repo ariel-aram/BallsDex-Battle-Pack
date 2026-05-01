@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("ballsdex.packages.battle")
 
-
 @dataclass
 class BattleBall:
     name: str
