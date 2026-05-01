@@ -19,7 +19,7 @@ from ballsdex.core.utils.transformers import (  # type: ignore
 from settings.models import settings  # type: ignore
 
 if TYPE_CHECKING:
-    from ballsdex.core.bot import BallsDexBot  # type: ignore
+    from ballsdex.core.bot import BallsDexBot
 
 log = logging.getLogger("ballsdex.packages.battle")
 
