@@ -5,7 +5,7 @@ Battle system for **BallsDex V3**. Players battle eachother using their countryb
 ## Commands
 
 | Command | Description |
-|---|---|
+| ------- | ----------- |
 | `/battle start user` | Starts a battle with another user |
 | `/battle add ball` | Adds a single countryball to your battle deck with support for searching for a specific special using the special parameter |
 | `/battle remove ball` | Removes a single countryball from your battle deck with support for searching for a specific special using the special parameter |
