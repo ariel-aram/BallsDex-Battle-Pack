@@ -6,7 +6,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("ballsdex.packages.battle")
 
-
 async def setup(bot: "BallsDexBot"):
     log.info("Loading Battle package...")
     from .cog import Battle
